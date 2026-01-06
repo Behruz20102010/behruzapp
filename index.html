@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Travel Town - Merge Adventure</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;overflow-x:hidden;}
+.item-card{transition: all 0.3s cubic-bezier(0.4,0,0.2,1);}
+.item-card:hover{transform: scale(1.08); box-shadow:0 10px 25px rgba(0,0,0,0.15);}
+.item-card:active{transform: scale(0.95);}
+.merge-glow{animation: glow 0.6s ease-in-out;}
+@keyframes glow{0%,100%{box-shadow:0 0 10px rgba(59,130,246,0.5);transform:scale(1);}50%{box-shadow:0 0 30px rgba(59,130,246,1);transform:scale(1.1);} }
+.dragging{opacity:0.4; transform:scale(0.9);}
+.pulse-animation{animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.7;}}
+@media(max-width:640px){.grid-container{gap:0.25rem;}}
+</style>
+</head>
+<body class="bg-gradient-to-br from-green-100 via-blue-100 to-purple-100 min-h-screen">
+
+<div id="app" class="p-2 sm:p-4 md:p-8"></div>
+
+<script>
+// CONFIG
+const CONFIG={gridSize:6,startCoins:100,itemCost:10,startItems:3};
+const itemTypes={
+wood:[{level:1,emoji:'🌱',name:'Niholcha',color:'bg-green-100'},{level:2,emoji:'🌿',name:'Kurtakcha',color:'bg-green-200'},{level:3,emoji:'🪵',name:"Yog'och",color:'bg-amber-200'},{level:4,emoji:'🌳',name:'Daraxt',color:'bg-green-300'},{level:5,emoji:'🏠',name:'Kulba',color:'bg-amber-300'}],
+stone:[{level:1,emoji:'🪨',name:'Toshcha',color:'bg-gray-200'},{level:2,emoji:'🗿',name:'Tosh',color:'bg-gray-300'},{level:3,emoji:'⛰️',name:'Qoya',color:'bg-gray-400'},{level:4,emoji:'🏛️',name:'Yodgorlik',color:'bg-stone-400'}],
+water:[{level:1,emoji:'💧',name:'Tomchi',color:'bg-blue-100'},{level:2,emoji:'🌊',name:"To'lqin",color:'bg-blue-200'},{level:3,emoji:'⛲',name:'Favvora',color:'bg-blue-300'},{level:4,emoji:'🏖️',name:'Plyaj',color:'bg-cyan-300'}],
+food:[{level:1,emoji:'🌾',name:"Bug'doy",color:'bg-yellow-100'},{level:2,emoji:'🍞',name:'Non',color:'bg-yellow-200'},{level:3,emoji:'🍕',name:'Pitsa',color:'bg-orange-200'},{level:4,emoji:'🍰',name:'Tort',color:'bg-pink-200'},{level:5,emoji:'🏪',name:'Novvoyxona',color:'bg-red-200'}],
+energy:[{level:1,emoji:'⚡',name:'Uchqun',color:'bg-yellow-100'},{level:2,emoji:'💡',name:'Lampochka',color:'bg-yellow-200'},{level:3,emoji:'🔋',name:'Batareyka',color:'bg-green-200'},{level:4,emoji:'⚙️',name:'Generator',color:'bg-gray-300'}]
+};
+
+// STATE
+let state={grid:[],score:0,coins:CONFIG.startCoins,highScore:localStorage.getItem('highScore')||0,draggedItem:null,mergeCount:0};
+
+// ✅ LOCAL STORAGE
+function saveState(){localStorage.setItem('gameState',JSON.stringify({grid:state.grid,score:state.score,coins:state.coins,mergeCount:state.mergeCount}));}
+function loadState(){const saved=localStorage.getItem('gameState'); if(saved){const obj=JSON.parse(saved); state.grid=obj.grid; state.score=obj.score; state.coins=obj.coins; state.mergeCount=obj.mergeCount;}else{initGrid();}}
+
+// GRID INIT
+function initGrid(){state.grid=[]; for(let i=0;i<CONFIG.gridSize;i++){const row=[]; for(let j=0;j<CONFIG.gridSize;j++){row.push({id:`${i}-${j}`,item:null});} state.grid.push(row);} for(let i=0;i<CONFIG.startItems;i++) addRandomItem(); saveState();}
+function addRandomItem(){const empty=[]; state.grid.forEach((row,i)=>row.forEach((cell,j)=>{if(!cell.item) empty.push({row:i,col:j});})); if(empty.length===0) return false; const spot=empty[Math.floor(Math.random()*empty.length)]; const types=Object.keys(itemTypes); const type=types[Math.floor(Math.random()*types.length)]; state.grid[spot.row][spot.col]={item:{type:type,level:1,id:Date.now()+Math.random()}}; saveState(); return true;}
+function buyItem(){if(state.coins>=CONFIG.itemCost){if(addRandomItem()){state.coins-=CONFIG.itemCost; playSound('buy'); render(); saveState();}}}
+function handleDrop(targetRow,targetCol){if(!state.draggedItem) return; const target=state.grid[targetRow][targetCol].item; const source=state.draggedItem.item; const sourceRow=state.draggedItem.row; const sourceCol=state.draggedItem.col;
+if(targetRow===sourceRow && targetCol===sourceCol){state.draggedItem=null; render(); return;}
+if(target && target.type===source.type && target.level===source.level){const chain=itemTypes[source.type]; if(source.level<chain.length){state.grid[sourceRow][sourceCol].item=null; state.grid[targetRow][targetCol].item={type:source.type,level:source.level+1,id:Date.now()}; const points=source.level*10; const coinReward=source.level*5; state.score+=points; state.coins+=coinReward; state.mergeCount++; if(state.score>state.highScore){state.highScore=state.score; localStorage.setItem('highScore',state.highScore);} playSound('merge'); showMergeEffect(targetRow,targetCol,points);}} else if(!target){state.grid[sourceRow][sourceCol].item=null; state.grid[targetRow][targetCol].item=source; playSound('move');} state.draggedItem=null; render(); saveState();}
+function showMergeEffect(row,col,points){setTimeout(()=>{const cell=document.querySelector(`[data-cell="${row}-${col}"]`); if(cell){cell.classList.add('merge-glow'); const pointsEl=document.createElement('div'); pointsEl.className='absolute -top-8 left-1/2 transform -translate-x-1/2 text-green-600 font-bold text-lg animate-bounce'; pointsEl.textContent=`+${points}`; cell.appendChild(pointsEl); setTimeout(()=>{cell.classList.remove('merge-glow'); pointsEl.remove();},600);}} ,0);}
+function playSound(type){const audioContext=new (window.AudioContext||window.webkitAudioContext)(); const osc=audioContext.createOscillator(); const gain=audioContext.createGain(); osc.connect(gain); gain.connect(audioContext.destination); switch(type){case'merge': osc.frequency.value=800; gain.gain.setValueAtTime(0.1,audioContext.currentTime); gain.gain.exponentialRampToValueAtTime(0.01,audioContext.currentTime+0.2); break; case'buy': osc.frequency.value=600; gain.gain.setValueAtTime(0.1,audioContext.currentTime); gain.gain.exponentialRampToValueAtTime(0.01,audioContext.currentTime+0.1); break; case'move': osc.frequency.value=400; gain.gain.setValueAtTime(0.05,audioContext.currentTime); gain.gain.exponentialRampToValueAtTime(0.01,audioContext.currentTime+0.05); break;}}
+function deleteItem(row,col,event){event.stopPropagation(); if(state.grid[row][col].item){state.coins+=Math.floor(state.grid[row][col].item.level*2); state.grid[row][col].item=null; playSound('move'); render(); saveState();}}
+function resetGame(){if(confirm("O'yinni qaytadan boshlaysizmi?")){state.score=0; state.coins=CONFIG.startCoins; state.mergeCount=0; initGrid(); render(); saveState();}}
+function countEmptySpots(){let count=0; state.grid.forEach(row=>row.forEach(cell=>{if(!cell.item) count++;})); return count;}
+
+// 🟢 OFFER BOARD
+function buyOffer(type,level){
+    if(state.coins<300){alert("Tangalar yetarli emas!"); return;}
+    const empty=[]; state.grid.forEach((row,i)=>row.forEach((cell,j)=>{if(!cell.item) empty.push({row:i,col:j});}));
+    if(empty.length===0){alert("Bo'sh joy yo'q!"); return;}
+    const spot=empty[Math.floor(Math.random()*empty.length)];
+    state.grid[spot.row][spot.col].item={type:type,level:level,id:Date.now()+Math.random()};
+    state.coins-=300; playSound('buy'); render(); saveState();
+}
+
+// 🟢 DONATE / TOP UP
+function donate(amount){
+    let coinsAdded=0;
+    if(amount===2) coinsAdded=1000;
+    else if(amount===5) coinsAdded=3000;
+    else if(amount===10) coinsAdded=7000;
+    state.coins+=coinsAdded; saveState(); render(); alert(`Siz ${coinsAdded} tangalarni oldingiz!`);
+}
+
+// 🟢 TELEGRAM USER ID
+let tg, userId="Guest";
+if(window.Telegram && window.Telegram.WebApp){
+    tg = window.Telegram.WebApp; tg.expand();
+    userId = tg.initDataUnsafe.user?.id || "Guest";
+}
+
+// 🟢 AUTO COIN PER HOUR
+const AUTO_COIN_AMOUNT = 150;
+const AUTO_COIN_INTERVAL = 60*60*1000; // 1 soat
+function getLastAutoCoinTime(){return parseInt(localStorage.getItem("lastAutoCoinTime")||"0");}
+function setLastAutoCoinTime(time){localStorage.setItem("lastAutoCoinTime",time);}
+function checkAutoCoins(){const now=Date.now(); const last=getLastAutoCoinTime();
+if(now-last>=AUTO_COIN_INTERVAL){state.coins+=AUTO_COIN_AMOUNT; setLastAutoCoinTime(now); render();}}
+setInterval(checkAutoCoins,1000);
+checkAutoCoins();
+
+// 🔹 RENDER
+function render(){
+    const app=document.getElementById('app');
+    const emptySpots=countEmptySpots();
+    app.innerHTML=`
+    <div class="max-w-4xl mx-auto">
+        <!-- Offer Board -->
+        <div class="bg-yellow-50 rounded-xl p-3 mb-4 text-center shadow-md">
+            <h2 class="font-bold text-gray-800 mb-2">🎁 Takliflar</h2>
+            <div class="flex flex-wrap justify-center gap-2">
+                <button onclick="buyOffer('wood',3)" class="bg-green-400 hover:bg-green-500 text-white px-3 py-2 rounded-lg">🌳 Daraxt - 300 tanga</button>
+                <button onclick="buyOffer('food',3)" class="bg-yellow-400 hover:bg-yellow-500 text-white px-3 py-2 rounded-lg">🍕 Pitsa - 300 tanga</button>
+                <button onclick="buyOffer('stone',3)" class="bg-gray-400 hover:bg-gray-500 text-white px-3 py-2 rounded-lg">⛰️ Qoya - 300 tanga</button>
+                <button onclick="buyOffer('water',3)" class="bg-blue-400 hover:bg-blue-500 text-white px-3 py-2 rounded-lg">⛲ Favvora - 300 tanga</button>
+            </div>
+        </div>
+        <!-- Donate -->
+        <div class="bg-purple-50 rounded-xl p-3 mb-4 text-center shadow-md">
+            <h2 class="font-bold text-gray-800 mb-2">💖 Donate / Top Up</h2>
+            <div class="flex flex-wrap justify-center gap-2">
+                <button onclick="donate(2)" class="bg-blue-400 hover:bg-blue-500 text-white px-3 py-2 rounded-lg">💵 2 USD → 1000 tanga</button>
+                <button onclick="donate(5)" class="bg-green-400 hover:bg-green-500 text-white px-3 py-2 rounded-lg">💵 5 USD → 3000 tanga</button>
+                <button onclick="donate(10)" class="bg-purple-400 hover:bg-purple-500 text-white px-3 py-2 rounded-lg">💵 10 USD → 7000 tanga</button>
+            </div>
+        </div>
+        <!-- Header -->
+        <div class="bg-white rounded-2xl shadow-lg p-4 sm:p-6 mb-4 sm:mb-6">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <h1 class="text-2xl sm:text-3xl font-bold text-gray-800 flex items-center gap-2">🏘️ Travel Town</h1>
+                    <p class="text-gray-600 text-xs sm:text-sm">Elementlarni birlashtirib shahar quring!</p>
+                    <p class="text-gray-400 text-xs">Telegram ID: ${userId}</p>
+                </div>
+                <button onclick="resetGame()" class="px-3 py-2 bg-gray-200 hover:bg-gray-300 rounded-lg transition text-sm">🔄 Qaytadan</button>
+            </div>
+            <div class="grid grid-cols-3 gap-2 sm:gap-4 text-center">
+                <div class="bg-gradient-to-r from-purple-500 to-pink-500 text-white rounded-xl p-2 sm:p-3">
+                    <div class="text-xs opacity-90">Ball</div>
+                    <div class="text-lg sm:text-2xl font-bold">${state.score}</div>
+                </div>
+                <div class="bg-gradient-to-r from-yellow-500 to-orange-500 text-white rounded-xl p-2 sm:p-3">
+                    <div class="text-xs opacity-90">Tangalar</div>
+                    <div class="text-lg sm:text-2xl font-bold">💰 ${state.coins}</div>
+                </div>
+                <div class="bg-gradient-to-r from-blue-500 to-cyan-500 text-white rounded-xl p-2 sm:p-3">
+                    <div class="text-xs opacity-90">Rekord</div>
+                    <div class="text-lg sm:text-2xl font-bold">🏆 ${state.highScore}</div>
+                </div>
+            </div>
+            <div class="mt-3 flex justify-between items-center text-xs sm:text-sm text-gray-600">
+                <span>Merge: ${state.mergeCount}</span>
+                <span>Bo'sh joy: ${emptySpots}/${CONFIG.gridSize*CONFIG.gridSize}</span>
+            </div>
+        </div>
+
+        <!-- Game Board -->
+        <div class="bg-white rounded-2xl shadow-lg p-3 sm:p-6 mb-4 sm:mb-6">
+            <div class="grid grid-cols-6 gap-1 sm:gap-2">
+                ${state.grid.map((row,i)=>row.map((cell,j)=>{
+                    const item=cell.item; const itemDef=item?itemTypes[item.type][item.level-1]:null;
+                    return `<div class="relative aspect-square rounded-lg sm:rounded-xl border-2 border-dashed border-gray-300 transition-all hover:border-gray-400" data-cell="${i}-${j}" ondragover="event.preventDefault()" ondrop="handleDrop(${i},${j})">
+                        ${item?`<div draggable="true" ondragstart="state.draggedItem={item:state.grid[${i}][${j}].item,row:${i},col:${j}};event.target.classList.add('dragging')" ondragend="event.target.classList.remove('dragging')" class="item-card absolute inset-1 ${itemDef.color} rounded-md sm:rounded-lg cursor-move flex flex-col items-center justify-center shadow-md group">
+                            <div class="text-xl sm:text-3xl mb-0 sm:mb-1">${itemDef.emoji}</div>
+                            <div class="text-[8px] sm:text-xs font-semibold text-gray-700 hidden sm:block">${itemDef.name}</div>
+                            <div class="text-[7px] sm:text-xs text-gray-500">Lv.${item.level}</div>
+                            <button onclick="deleteItem(${i},${j},event)" class="absolute top-0.5 right-0.5 sm:top-1 sm:right-1 bg-red-500 text-white rounded-full w-4 h-4 sm:w-6 sm:h-6 opacity-0 group-hover:opacity-100 transition text-[10px] sm:text-xs flex items-center justify-center">✕</button>
+                        </div>`:`<div class="absolute inset-1 bg-gray-50 rounded-md sm:rounded-lg flex items-center justify-center"><span class="text-gray-300 text-lg sm:text-2xl">+</span></div>`}
+                    </div>`;
+                }).join('')).join('')}
+            </div>
+        </div>
+
+        <!-- Actions -->
+        <div class="bg-white rounded-2xl shadow-lg p-4 sm:p-6">
+            <button onclick="buyItem()" ${state.coins<CONFIG.itemCost||emptySpots===0?'disabled':''} class="w-full bg-gradient-to-r from-green-500 to-emerald-500 text-white font-bold py-3 sm:py-4 rounded-xl hover:from-green-600 hover:to-emerald-600 disabled:from-gray-300 disabled:to-gray-400 disabled:cursor-not-allowed transition text-sm sm:text-base ${state.coins>=CONFIG.itemCost&&emptySpots>0?'pulse-animation':''}">➕ Tasodifiy Element (${CONFIG.itemCost} tanga)</button>
+
+            <div class="mt-4 bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-4">
+                <h3 class="font-bold text-gray-800 mb-2 text-sm sm:text-base">🎮 Qanday o'ynash</h3>
+                <ul class="text-xs sm:text-sm text-gray-700 space-y-1">
+                    <li>• <strong>Sudrab tashlash:</strong> Elementlarni boshqa joyga ko'chiring</li>
+                    <li>• <strong>Merge:</strong> 2 ta bir xil elementni birlashtiring</li>
+                    <li>• <strong>Ball:</strong> Har bir merge uchun ball oling</li>
+                    <li>• <strong>Tangalar:</strong> Yangi elementlar sotib oling</li>
+                    <li>• <strong>O'chirish:</strong> Element ustiga bosib o'chiring</li>
+                </ul>
+            </div>
+
+            <div class="mt-4 text-center text-xs text-gray-500">Made with ❤️ for GitHub Pages</div>
+        </div>
+    </div>
+    `;
+}
+
+// ⚡ INIT
+window.addEventListener('DOMContentLoaded',()=>{loadState(); render();});
+</script>
+</body>
+</html>
